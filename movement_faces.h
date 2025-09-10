@@ -73,4 +73,10 @@
 #include "wareki_face.h"
 #include "deadline_face.h"
 #include "wordle_face.h"
+#include "1nver58_face.h"
+#include "3ntrop1c_face.h"
+#include "7imelin8_face.h"
+#include "an91og_face.h"
+#include "k91man_face.h"
+#include "wyoscan_face.h"
 // New includes go above this line.

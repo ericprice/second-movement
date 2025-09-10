@@ -1,0 +1,18 @@
+services:
+  emulator:
+    image: second-movement-dev:latest
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    working_dir: /work
+    volumes:
+      - .:/work
+    ports:
+      - "${PORT}:8000"
+    env_file:
+      - .env
+    command: >
+      bash -lc "git submodule update --init --recursive &&
+                emmake make BOARD=$BOARD DISPLAY=$DISPLAY &&
+                python3 -m http.server -d build-sim $PORT"
+    restart: unless-stopped

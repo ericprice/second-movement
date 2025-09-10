@@ -11,6 +11,66 @@ You will need to install [the GNU Arm Embedded Toolchain](https://developer.arm.
 You will need to fetch the git submodules for this repository too, with `git submodule update --init --recursive` 
 
 
+Using Docker/Colima (no local installs)
+---------------------------------------
+This repo includes a container setup that provides both the GNU Arm Embedded Toolchain and Emscripten, so you don’t need to install them on your machine. It works with Docker, Colima (on macOS), Rancher Desktop, or Podman (via Docker compatibility).
+
+1) Build the dev image (uses `.devcontainer/Dockerfile`):
+
+```
+./tools/docker-build.sh        # builds image: second-movement-dev:latest
+```
+
+2) Run commands inside the container with your repo mounted at `/work`:
+
+```
+# Build firmware for hardware
+./tools/run-in-docker.sh make BOARD=sensorwatch_red DISPLAY=classic
+
+# Build the web emulator
+./tools/run-in-docker.sh emmake make BOARD=sensorwatch_red DISPLAY=classic
+
+# Serve the emulator at http://localhost:8000
+DOCKER_ARGS='-p 8000:8000' ./tools/run-in-docker.sh python -m http.server -d build-sim 8000
+```
+
+If you haven’t initialized submodules locally, you can also do that in the container:
+
+```
+./tools/run-in-docker.sh git submodule update --init --recursive
+```
+
+Notes:
+- On Apple Silicon with Colima: `colima start` before using Docker. The image auto-selects the correct ARM/x86 toolchain in the container.
+- The container installs: make, git, python3, Emscripten, and GNU Arm Embedded Toolchain 10.3-2021.07.
+- You can change the image name by passing `./tools/run-in-docker.sh --image yourname:tag <cmd>` or rebuilding with `./tools/docker-build.sh yourname`.
+
+
+One-command emulator with Docker Compose
+---------------------------------------
+Use the provided `compose.yaml` to build and serve the web emulator in one go. Override `BOARD`, `DISPLAY`, and `PORT` as needed:
+
+```
+# Default: BOARD=sensorwatch_red, DISPLAY=classic, PORT=8000
+docker compose up emulator
+
+# Example: custom board/display and port
+BOARD=sensorwatch_blue DISPLAY=custom PORT=8080 docker compose up emulator
+```
+
+Then open `http://localhost:<PORT>/firmware.html` (e.g., `http://localhost:8000/firmware.html`). The service rebuilds when sources change; restart the service to re-run the build step.
+
+Troubleshooting:
+- Start a Docker engine first:
+  - Colima (macOS): `colima start` (and optionally `docker context use colima`)
+  - Docker Desktop: launch the app, then `docker info` should work.
+  - Linux: `sudo systemctl start docker`
+- If you see warnings about unset `BOARD`/`DISPLAY`/`PORT`, ensure the `.env` file exists (this repo includes one with defaults), or export the variables in your shell.
+- If `docker compose` is not available, use Compose v1:
+  - `docker-compose -f compose.yaml up emulator`
+  - or copy the file to `docker-compose.yml` and run `docker-compose up emulator`
+
+
 Building Second Movement
 ----------------------------
 You can build the default watch firmware with:

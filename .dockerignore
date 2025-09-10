@@ -1,0 +1,15 @@
+# Reduce build context size
+.git
+.gitmodules
+.github
+
+# Build outputs
+build
+build-sim
+*.uf2
+
+# IDE/editor
+.vscode
+.idea
+.DS_Store
+*.swp
