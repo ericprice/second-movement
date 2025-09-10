@@ -71,19 +71,17 @@ typedef struct {
     uint8_t frequency_switch_delay;
 } wyoscan_state_t;
 
-void wyoscan_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr);
-void wyoscan_face_activate(movement_settings_t *settings, void *context);
-bool wyoscan_face_loop(movement_event_t event, movement_settings_t *settings, void *context);
-void wyoscan_face_resign(movement_settings_t *settings, void *context);
-bool wyoscan_face_wants_background_task(movement_settings_t *settings, void *context);
+void wyoscan_face_setup(uint8_t watch_face_index, void ** context_ptr);
+void wyoscan_face_activate(void *context);
+bool wyoscan_face_loop(movement_event_t event, void *context);
+void wyoscan_face_resign(void *context);
 
 #define wyoscan_face ((const watch_face_t){ \
     wyoscan_face_setup, \
     wyoscan_face_activate, \
     wyoscan_face_loop, \
     wyoscan_face_resign, \
-    wyoscan_face_wants_background_task, \
+    NULL, \
 })
 
 #endif // WYOSCAN_FACE_H_
-

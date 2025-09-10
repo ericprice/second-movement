@@ -25,7 +25,7 @@
 #include <stdlib.h>
 #include "7imelin8_face.h"
 #include "watch.h"
-#include "watch_private_display.h"
+#include "watch_common_display.h"
 
 // Timeline face: Shows daily progress across the 6 time digit positions
 // Moves through 12 positions (6 digits × 2 sides) over 24 hours
@@ -37,16 +37,16 @@
 static void clear_all_lr_segments(void) {
     // Clear F,E,B,C on positions 4..9
     for (uint8_t pos = 4; pos <= 9; pos++) {
-        uint64_t segmap = Segment_Map[pos];
+        const digit_mapping_t map = (watch_get_lcd_type() == WATCH_LCD_TYPE_CUSTOM)
+            ? Custom_LCD_Display_Mapping[pos]
+            : Classic_LCD_Display_Mapping[pos];
         for (uint8_t seg_code = 0; seg_code < 8; seg_code++) {
-            uint8_t com = (segmap & 0xFF) >> 6;
-            if (com > 2) { segmap >>= 8; continue; }
-            uint8_t seg = segmap & 0x3F;
-            // segments we care about: 1(B),2(C),4(E),5(F)
+            if (map.segment[seg_code].value == segment_does_not_exist) continue;
+            uint8_t com = map.segment[seg_code].address.com;
+            uint8_t seg = map.segment[seg_code].address.seg;
             if (seg_code == 1 || seg_code == 2 || seg_code == 4 || seg_code == 5) {
                 watch_clear_pixel(com, seg);
             }
-            segmap >>= 8;
         }
     }
 }
@@ -54,22 +54,23 @@ static void clear_all_lr_segments(void) {
 static void set_lr_segments(uint8_t position, bool left_side) {
     // Light F&E for left side; B&C for right side, on given position 4..9
     if (position < 4 || position > 9) return;
-    uint64_t segmap = Segment_Map[position];
+    const digit_mapping_t map = (watch_get_lcd_type() == WATCH_LCD_TYPE_CUSTOM)
+        ? Custom_LCD_Display_Mapping[position]
+        : Classic_LCD_Display_Mapping[position];
     for (uint8_t seg_code = 0; seg_code < 8; seg_code++) {
-        uint8_t com = (segmap & 0xFF) >> 6;
-        if (com > 2) { segmap >>= 8; continue; }
-        uint8_t seg = segmap & 0x3F;
+        if (map.segment[seg_code].value == segment_does_not_exist) continue;
+        uint8_t com = map.segment[seg_code].address.com;
+        uint8_t seg = map.segment[seg_code].address.seg;
         if (left_side) {
             if (seg_code == 5 || seg_code == 4) watch_set_pixel(com, seg); // F, E
         } else {
             if (seg_code == 1 || seg_code == 2) watch_set_pixel(com, seg); // B, C
         }
-        segmap >>= 8;
     }
 }
 
-void timelin8_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
-    (void) settings; (void) watch_face_index;
+void timelin8_face_setup(uint8_t watch_face_index, void ** context_ptr) {
+    (void) watch_face_index;
     if (*context_ptr == NULL) {
         timelin8_state_t *state = (timelin8_state_t *)malloc(sizeof(timelin8_state_t));
         state->last_bucket = -1;
@@ -79,10 +80,9 @@ void timelin8_face_setup(movement_settings_t *settings, uint8_t watch_face_index
     }
 }
 
-void timelin8_face_activate(movement_settings_t *settings, void *context) {
-    (void) settings;
+void timelin8_face_activate(void *context) {
     timelin8_state_t *state = (timelin8_state_t *)context;
-    if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+    if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
     // Since we only update every 2 hours, we can use 1Hz and check less frequently
     // We'll wake up once per minute to ensure we catch the hour change reliably
     movement_request_tick_frequency(1);
@@ -91,8 +91,7 @@ void timelin8_face_activate(movement_settings_t *settings, void *context) {
     clear_all_lr_segments();
 }
 
-bool timelin8_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
-    (void) settings;
+bool timelin8_face_loop(movement_event_t event, void *context) {
     timelin8_state_t *state = (timelin8_state_t *)context;
     switch (event.event_type) {
         case EVENT_ACTIVATE:
@@ -102,7 +101,7 @@ bool timelin8_face_loop(movement_event_t event, movement_settings_t *settings, v
         case EVENT_LOW_ENERGY_UPDATE: {
             // Skip most ticks - only check once per minute for efficiency
             // Since we update every 2 hours, checking once per minute is plenty
-            watch_date_time now = watch_rtc_get_date_time();
+            watch_date_time_t now = movement_get_local_date_time();
             
             if (event.event_type == EVENT_TICK && now.unit.minute == state->last_minute) {
                 break; // Skip if minute hasn't changed
@@ -120,15 +119,14 @@ bool timelin8_face_loop(movement_event_t event, movement_settings_t *settings, v
                 // Clear only the previous segment position for efficiency
                 if (state->last_position < 10) {
                     // Clear the last lit segment
-                    uint64_t segmap = Segment_Map[state->last_position];
+                    const digit_mapping_t map = (watch_get_lcd_type() == WATCH_LCD_TYPE_CUSTOM)
+                        ? Custom_LCD_Display_Mapping[state->last_position]
+                        : Classic_LCD_Display_Mapping[state->last_position];
                     for (uint8_t i = 0; i < 8; i++) {
-                        uint8_t com = (segmap & 0xFF) >> 6;
-                        if (com > 2) { segmap >>= 8; continue; }
-                        uint8_t seg = segmap & 0x3F;
-                        if (i == 1 || i == 2 || i == 4 || i == 5) {
-                            watch_clear_pixel(com, seg);
-                        }
-                        segmap >>= 8;
+                        if (map.segment[i].value == segment_does_not_exist) continue;
+                        uint8_t com = map.segment[i].address.com;
+                        uint8_t seg = map.segment[i].address.seg;
+                        if (i == 1 || i == 2 || i == 4 || i == 5) watch_clear_pixel(com, seg);
                     }
                 }
                 
@@ -142,13 +140,12 @@ bool timelin8_face_loop(movement_event_t event, movement_settings_t *settings, v
             break;
         }
         default:
-            return movement_default_loop_handler(event, settings);
+            return movement_default_loop_handler(event);
     }
     return true;
 }
 
-void timelin8_face_resign(movement_settings_t *settings, void *context) {
-    (void) settings; (void) context;
+void timelin8_face_resign(void *context) {
+    (void) context;
+    movement_request_tick_frequency(1);
 }
-
-

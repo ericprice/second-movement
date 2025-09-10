@@ -32,10 +32,10 @@ typedef struct {
     bool needs_high_freq;
 } ep_analog_state_t;
 
-void an91og_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr);
-void an91og_face_activate(movement_settings_t *settings, void *context);
-bool an91og_face_loop(movement_event_t event, movement_settings_t *settings, void *context);
-void an91og_face_resign(movement_settings_t *settings, void *context);
+void an91og_face_setup(uint8_t watch_face_index, void ** context_ptr);
+void an91og_face_activate(void *context);
+bool an91og_face_loop(movement_event_t event, void *context);
+void an91og_face_resign(void *context);
 
 #define an91og_face ((const watch_face_t){ \
     an91og_face_setup, \
@@ -46,5 +46,4 @@ void an91og_face_resign(movement_settings_t *settings, void *context);
 })
 
 #endif // an91og_face_H_
-
 

@@ -33,10 +33,10 @@ typedef struct {
     int8_t last_minute;    // Track minute to reduce RTC reads
 } timelin8_state_t;
 
-void timelin8_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr);
-void timelin8_face_activate(movement_settings_t *settings, void *context);
-bool timelin8_face_loop(movement_event_t event, movement_settings_t *settings, void *context);
-void timelin8_face_resign(movement_settings_t *settings, void *context);
+void timelin8_face_setup(uint8_t watch_face_index, void ** context_ptr);
+void timelin8_face_activate(void *context);
+bool timelin8_face_loop(movement_event_t event, void *context);
+void timelin8_face_resign(void *context);
 
 #define timelin8_face ((const watch_face_t){ \
     timelin8_face_setup, \
@@ -47,5 +47,4 @@ void timelin8_face_resign(movement_settings_t *settings, void *context);
 })
 
 #endif // TIMELIN8_FACE_H_
-
 

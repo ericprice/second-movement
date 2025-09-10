@@ -26,7 +26,7 @@
 #include <string.h>
 #include "wyoscan_face.h"
 #include "watch.h"
-#include "watch_private_display.h"
+#include "watch_common_display.h"
 
 /*
 Slowly render the current time from left to right, 
@@ -96,8 +96,7 @@ static const int32_t clock_mapping[6][7][2] = {
     {{2,4}, {2,5}, {1,6}, {0,6}, {0,5}, {1,4}, {1,5}},
 };
 
-void wyoscan_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
-    (void) settings;
+void wyoscan_face_setup(uint8_t watch_face_index, void ** context_ptr) {
     (void) watch_face_index;
     if (*context_ptr == NULL) {
         *context_ptr = malloc(sizeof(wyoscan_state_t));
@@ -109,10 +108,9 @@ void wyoscan_face_setup(movement_settings_t *settings, uint8_t watch_face_index,
     // Do any pin or peripheral setup here; this will be called whenever the watch wakes from deep sleep.
 }
 
-void wyoscan_face_activate(movement_settings_t *settings, void *context) {
-    (void) settings;
+void wyoscan_face_activate(void *context) {
     wyoscan_state_t *state = (wyoscan_state_t *)context;
-    if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+    if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
     // Start at 4Hz for idle - still fast enough to catch second changes reliably
     movement_request_tick_frequency(4);
     state->total_frames = 64;  // 2 second animation at 32Hz when active
@@ -124,15 +122,15 @@ void wyoscan_face_activate(movement_settings_t *settings, void *context) {
     state->frequency_switch_delay = 0;
 }
 
-bool wyoscan_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
+bool wyoscan_face_loop(movement_event_t event, void *context) {
     wyoscan_state_t *state = (wyoscan_state_t *)context;
 
-    watch_date_time date_time;
+    watch_date_time_t date_time;
     switch (event.event_type) {
         case EVENT_ACTIVATE:
             break;
         case EVENT_TICK:            
-            date_time = watch_rtc_get_date_time();
+            date_time = movement_get_local_date_time();
             
             // Colon alternates each second: on for 1 full second, off for 1 full second
             // This gives a steady 0.5Hz blink rate (30 blinks per minute)
@@ -153,12 +151,12 @@ bool wyoscan_face_loop(movement_event_t event, movement_settings_t *settings, vo
                 state->animate = true;
                 // build digits from current time; respect 12h/24h setting
                 uint8_t display_hour = date_time.unit.hour;
-                if (!settings->bit.clock_mode_24h) {
+                if (!movement_clock_mode_24h()) {
                     display_hour %= 12;
                     if (display_hour == 0) display_hour = 12;
                 }
                 // In 12h mode, hide leading zero by suppressing tens-of-hour when < 10
-                if (!settings->bit.clock_mode_24h && display_hour < 10) {
+                if (!movement_clock_mode_24h() && display_hour < 10) {
                     state->time_digits[0] = 10; // special value to denote blank
                     state->time_digits[1] = display_hour;
                 } else {
@@ -172,11 +170,11 @@ bool wyoscan_face_loop(movement_event_t event, movement_settings_t *settings, vo
             } else {
                 // If we are mid-animation, update hours to reflect 12/24h mode changes immediately.
                 uint8_t display_hour = date_time.unit.hour;
-                if (!settings->bit.clock_mode_24h) {
+                if (!movement_clock_mode_24h()) {
                     display_hour %= 12;
                     if (display_hour == 0) display_hour = 12;
                 }
-                if (!settings->bit.clock_mode_24h && display_hour < 10) {
+                if (!movement_clock_mode_24h() && display_hour < 10) {
                     state->time_digits[0] = 10;
                     state->time_digits[1] = display_hour;
                 } else {
@@ -253,20 +251,19 @@ bool wyoscan_face_loop(movement_event_t event, movement_settings_t *settings, vo
             movement_request_tick_frequency(1);
             
             watch_set_colon();
-            watch_date_time dt = watch_rtc_get_date_time();
+            watch_date_time_t dt = watch_rtc_get_date_time();
             
             // Respect 12h/24h without any indicators
-            if (!settings->bit.clock_mode_24h) {
+            if (!movement_clock_mode_24h()) {
                 dt.unit.hour %= 12;
                 if (dt.unit.hour == 0) dt.unit.hour = 12;
             }
             
             char buf[11];
             sprintf(buf, "%2d%02d  ", dt.unit.hour, dt.unit.minute);
-            watch_display_string(buf, 4);
+            watch_display_text(WATCH_POSITION_BOTTOM, buf);
             
-            // Use simple tick animation only
-            if (!watch_tick_animation_is_running()) watch_start_tick_animation(500);
+            // No animation in low energy mode to conserve power
             break;
         }
         case EVENT_ALARM_LONG_PRESS:
@@ -274,24 +271,16 @@ bool wyoscan_face_loop(movement_event_t event, movement_settings_t *settings, vo
         case EVENT_BACKGROUND_TASK:
             break;
         default:
-            return movement_default_loop_handler(event, settings);
+            return movement_default_loop_handler(event);
     }
 
     return true;
 }
 
-void wyoscan_face_resign(movement_settings_t *settings, void *context) {
-    (void) settings;
+void wyoscan_face_resign(void *context) {
     (void) context;
 
     // handle any cleanup before your watch face goes off-screen.
     movement_request_tick_frequency(1);  // Return to 1Hz when leaving this face
-    if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+    if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
 }
-
-bool wyoscan_face_wants_background_task(movement_settings_t *settings, void *context) {
-    (void) settings;
-    (void) context;
-    return false;
-}
-

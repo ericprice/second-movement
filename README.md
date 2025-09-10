@@ -60,6 +60,23 @@ BOARD=sensorwatch_blue DISPLAY=custom PORT=8080 docker compose up emulator
 
 Then open `http://localhost:<PORT>/firmware.html` (e.g., `http://localhost:8000/firmware.html`). The service rebuilds when sources change; restart the service to re-run the build step.
 
+Note: The compose service sets `EMCC_SKIP_WASM_OPT=1` to avoid a known Emscripten toolchain issue (`llvm-objcopy` / `wasm-opt` errors when stripping). If you want full wasm optimization locally, unset that variable.
+
+
+Hardware firmware via Docker Compose
+-----------------------------------
+Build UF2 firmware without installing toolchains locally:
+
+```
+# Default BOARD/DISPLAY come from .env
+docker compose run --rm firmware
+
+# Customize
+BOARD=sensorwatch_blue DISPLAY=custom JOBS=8 docker compose run --rm firmware
+```
+
+Artifacts land in `build/firmware.uf2` inside your repo.
+
 Troubleshooting:
 - Start a Docker engine first:
   - Colima (macOS): `colima start` (and optionally `docker context use colima`)

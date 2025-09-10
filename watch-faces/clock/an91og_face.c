@@ -26,7 +26,16 @@
 #include <string.h>
 #include "an91og_face.h"
 #include "watch.h"
-#include "watch_private_display.h"
+#include "watch_common_display.h"
+
+// Enable a debugging helper to sweep the minute indicator through all 12 buckets
+// one step (5 minutes) per second in the emulator. Define AN91OG_SWEEP_MINUTES
+// at build time, e.g.:
+//   emmake make DEFINES+="-DAN91OG_SWEEP_MINUTES" BOARD=... DISPLAY=...
+#ifdef AN91OG_SWEEP_MINUTES
+static uint8_t _sweep_minute = 0xFF;
+static uint8_t _sweep_prev_second = 0xFF;
+#endif
 
 static const int32_t clock_mapping_ep[6][7][2] = {
     // hour 1
@@ -77,11 +86,15 @@ static const uint8_t minute_indicator_order[12][2] = {
     {0, 2}, // 40-44:  digit0 bottom-right (C)
     {0, 6}, // 45-49:  digit0 center (G)
     {0, 1}, // 50-54:  digit0 top-right (B)
-    {0, 6}, // 55-59:  digit0 center (G) — pairs with H2 center via extra rule
+    {1, 5}, // 55-59:  digit1 (H2) top-left (F)
 };
 
+// The minute-hand indicator buckets are shifted back by 2 minutes.
+// Example: 05–09 -> 03–07, 00–04 -> 58–02, handling wraparound.
 static inline void render_minute_indicator(uint8_t minute, bool visible) {
-    uint8_t bucket = minute / 5; // 0..11
+    uint8_t adj = minute + 2;           // shift back two minutes
+    if (adj >= 60) adj -= 60;           // wrap at :60 -> :00
+    uint8_t bucket = adj / 5;           // 0..11
     uint8_t pos = minute_indicator_order[bucket][0];
     uint8_t seg = minute_indicator_order[bucket][1];
     if (visible) {
@@ -110,9 +123,7 @@ static inline void render_minute_indicator(uint8_t minute, bool visible) {
     else watch_clear_pixel(clock_mapping_ep[pos][seg][0], clock_mapping_ep[pos][seg][1]);
 }
 
-static inline void clear_minute_indicator(uint8_t minute) {
-    render_minute_indicator(minute, false);
-}
+static inline void clear_minute_indicator(uint8_t minute) { render_minute_indicator(minute, false); }
 
 static inline void clear_all_centers(void) {
     // Proactively clear center segment (G) on all four HH:MM digits to avoid any "stuck" middles
@@ -169,28 +180,28 @@ static void render_hour_ring(uint8_t hour_12, uint8_t subsecond, bool enable_bli
     }
 }
 
-void an91og_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
-    (void) settings; (void) watch_face_index;
+void an91og_face_setup(uint8_t watch_face_index, void ** context_ptr) {
+    (void) watch_face_index;
     if (*context_ptr == NULL) {
         *context_ptr = malloc(sizeof(ep_analog_state_t));
     }
 }
 
-void an91og_face_activate(movement_settings_t *settings, void *context) {
+void an91og_face_activate(void *context) {
     ep_analog_state_t *state = (ep_analog_state_t *)context;
-    if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+    if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
     movement_request_tick_frequency(1);
     state->last_minute = 0xFF;
     state->needs_high_freq = false;
 }
 
-bool an91og_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
+bool an91og_face_loop(movement_event_t event, void *context) {
     ep_analog_state_t *state = (ep_analog_state_t *)context;
     
     switch (event.event_type) {
         case EVENT_ACTIVATE:
         case EVENT_TICK: {
-            watch_date_time now = watch_rtc_get_date_time();
+            watch_date_time_t now = movement_get_local_date_time();
             uint8_t hour_now = now.unit.hour % 12;
             
             // Check if we need high frequency for blinking using bit mask for efficiency
@@ -204,11 +215,23 @@ bool an91og_face_loop(movement_event_t event, movement_settings_t *settings, voi
                 state->needs_high_freq = should_blink;
             }
             
+            // Compute which minute bucket to display (optionally overridden in sweep mode)
+            uint8_t minute_for_indicator = now.unit.minute;
+#ifdef AN91OG_SWEEP_MINUTES
+            // Step 5 minutes each new second to cycle through buckets quickly
+            if (_sweep_prev_second != now.unit.second) {
+                _sweep_prev_second = now.unit.second;
+                if (_sweep_minute == 0xFF) _sweep_minute = (uint8_t)((now.unit.minute / 5) * 5);
+                else _sweep_minute = (uint8_t)((_sweep_minute + 5) % 60);
+            }
+            minute_for_indicator = _sweep_minute;
+#endif
+
             // Only clear ring when minute changes (minute indicator moves)
-            if (now.unit.minute != state->last_minute) {
+            if (minute_for_indicator != state->last_minute) {
                 // Clear prior minute indicator fully (including center G if used)
                 if (state->last_minute != 0xFF) clear_minute_indicator(state->last_minute);
-                state->last_minute = now.unit.minute;
+                state->last_minute = minute_for_indicator;
                 clear_outline_all_digits();  // Only clear the ring (A..F)
             }
             
@@ -229,19 +252,19 @@ bool an91og_face_loop(movement_event_t event, movement_settings_t *settings, voi
             // Minute-hand blink: match the colon's 1 Hz cadence regardless of ring blink
             bool minute_visible = colon_on;
             // Clear current bucket completely, then draw on visible phase to ensure all segments (incl. G) blink
-            clear_minute_indicator(now.unit.minute);
-            if (minute_visible) render_minute_indicator(now.unit.minute, true);
+            clear_minute_indicator(minute_for_indicator);
+            if (minute_visible) render_minute_indicator(minute_for_indicator, true);
             
             break;
         }
 
         case EVENT_LOW_ENERGY_UPDATE: {
-            if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+            if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
             movement_request_tick_frequency(1);
             watch_clear_display();
             watch_set_colon();
             
-            watch_date_time now = watch_rtc_get_date_time();
+            watch_date_time_t now = movement_get_local_date_time();
             uint8_t hour_now = now.unit.hour % 12;
             // Low energy: draw static, no blinking
             render_hour_ring(hour_now, 0, false);
@@ -252,13 +275,13 @@ bool an91og_face_loop(movement_event_t event, movement_settings_t *settings, voi
             break;
         }
         default:
-            return movement_default_loop_handler(event, settings);
+            return movement_default_loop_handler(event);
     }
     return true;
 }
 
-void an91og_face_resign(movement_settings_t *settings, void *context) {
-    (void) settings; (void) context;
+void an91og_face_resign(void *context) {
+    (void) context;
     movement_request_tick_frequency(1);
-    if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+    if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
 }

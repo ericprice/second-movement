@@ -27,7 +27,19 @@
 #include "1nver58_face.h"
 #include "watch.h"
 #include "watch_utility.h"
-#include "watch_private_display.h"
+#include "watch_common_display.h"
+
+static inline const digit_mapping_t *get_mapping(void) {
+    return (watch_get_lcd_type() == WATCH_LCD_TYPE_CUSTOM)
+        ? Custom_LCD_Display_Mapping
+        : Classic_LCD_Display_Mapping;
+}
+
+static inline const uint8_t *get_charset(void) {
+    return (watch_get_lcd_type() == WATCH_LCD_TYPE_CUSTOM)
+        ? Custom_LCD_Character_Set
+        : Classic_LCD_Character_Set;
+}
 
 static void inver58_display_character(uint8_t character, uint8_t position) {
     // Same character normalization logic as the standard renderer
@@ -69,25 +81,21 @@ static void inver58_display_character(uint8_t character, uint8_t position) {
         if (character == 'I') character = 'l';
     }
 
-    uint64_t segmap = Segment_Map[position];
-    uint64_t segdata = Character_Set[character - 0x20];
+    const digit_mapping_t map = get_mapping()[position];
+    uint64_t segdata = get_charset()[character - 0x20];
 
     for (int i = 0; i < 8; i++) {
-        uint8_t com = (segmap & 0xFF) >> 6;
-        if (com > 2) {
-            segmap = segmap >> 8;
-            segdata = segdata >> 1;
+        if (map.segment[i].value == segment_does_not_exist) {
+            segdata >>= 1;
             continue;
         }
-        uint8_t seg = segmap & 0x3F;
+        uint8_t com = map.segment[i].address.com;
+        uint8_t seg = map.segment[i].address.seg;
 
-        if (segdata & 1)
-            watch_clear_pixel(com, seg);
-        else
-            watch_set_pixel(com, seg);
+        if (segdata & 1) watch_clear_pixel(com, seg);
+        else watch_set_pixel(com, seg);
 
-        segmap = segmap >> 8;
-        segdata = segdata >> 1;
+        segdata >>= 1;
     }
 
     // Invert the special-case extra segments from the normal renderer
@@ -97,25 +105,18 @@ static void inver58_display_character(uint8_t character, uint8_t position) {
 }
 
 static void inver58_display_character_lp_seconds(uint8_t character, uint8_t position) {
-    uint64_t segmap = Segment_Map[position];
-    uint64_t segdata = Character_Set[character - 0x20];
-
+    const digit_mapping_t map = get_mapping()[position];
+    uint64_t segdata = get_charset()[character - 0x20];
     for (int i = 0; i < 8; i++) {
-        uint8_t com = (segmap & 0xFF) >> 6;
-        if (com > 2) {
-            segmap = segmap >> 8;
-            segdata = segdata >> 1;
+        if (map.segment[i].value == segment_does_not_exist) {
+            segdata >>= 1;
             continue;
         }
-        uint8_t seg = segmap & 0x3F;
-
-        if (segdata & 1)
-            watch_clear_pixel(com, seg);
-        else
-            watch_set_pixel(com, seg);
-
-        segmap = segmap >> 8;
-        segdata = segdata >> 1;
+        uint8_t com = map.segment[i].address.com;
+        uint8_t seg = map.segment[i].address.seg;
+        if (segdata & 1) watch_clear_pixel(com, seg);
+        else watch_set_pixel(com, seg);
+        segdata >>= 1;
     }
 }
 
@@ -134,8 +135,7 @@ static void _update_alarm_indicator(bool settings_alarm_enabled, inver58_state_t
     else watch_set_indicator(WATCH_INDICATOR_SIGNAL);
 }
 
-void inver58_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
-    (void) settings;
+void inver58_face_setup(uint8_t watch_face_index, void ** context_ptr) {
     (void) watch_face_index;
 
     if (*context_ptr == NULL) {
@@ -146,15 +146,15 @@ void inver58_face_setup(movement_settings_t *settings, uint8_t watch_face_index,
     }
 }
 
-void inver58_face_activate(movement_settings_t *settings, void *context) {
+void inver58_face_activate(void *context) {
     inver58_state_t *state = (inver58_state_t *)context;
 
-    if (watch_tick_animation_is_running()) watch_stop_tick_animation();
+    if (watch_sleep_animation_is_running()) watch_stop_sleep_animation();
 
 #ifdef CLOCK_FACE_24H_ONLY
     watch_clear_indicator(WATCH_INDICATOR_24H);
 #else
-    if (settings->bit.clock_mode_24h) watch_clear_indicator(WATCH_INDICATOR_24H);
+    if (movement_clock_mode_24h()) watch_clear_indicator(WATCH_INDICATOR_24H);
     else watch_set_indicator(WATCH_INDICATOR_24H);
 #endif
 
@@ -163,7 +163,7 @@ void inver58_face_activate(movement_settings_t *settings, void *context) {
     else watch_set_indicator(WATCH_INDICATOR_BELL);
 
     // show alarm indicator if there is an active alarm (inverted)
-    _update_alarm_indicator(settings->bit.alarm_enabled, state);
+    _update_alarm_indicator(movement_alarm_enabled(), state);
 
     // colon inverted
     watch_clear_colon();
@@ -174,20 +174,20 @@ void inver58_face_activate(movement_settings_t *settings, void *context) {
     state->previous_day_date = 0xFF;
 }
 
-bool inver58_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
+bool inver58_face_loop(movement_event_t event, void *context) {
     inver58_state_t *state = (inver58_state_t *)context;
     char buf[11];
     uint8_t pos;
 
-    watch_date_time date_time;
+    watch_date_time_t date_time;
     switch (event.event_type) {
         case EVENT_ACTIVATE:
         case EVENT_TICK:
         case EVENT_LOW_ENERGY_UPDATE:
-            date_time = watch_rtc_get_date_time();
+            date_time = movement_get_local_date_time();
             uint8_t prev_min = state->previous_minute;
             uint8_t prev_sec = state->previous_second;
-            uint8_t prev_day_date = state->previous_day_date;
+            /* prev_day_date no longer used after refactor */
             state->previous_minute = date_time.unit.minute;
             state->previous_second = date_time.unit.second;
             state->previous_day_date = (date_time.unit.hour << 5) | date_time.unit.day;
@@ -231,7 +231,7 @@ bool inver58_face_loop(movement_event_t event, movement_settings_t *settings, vo
             } else {
                 // full refresh
 #ifndef CLOCK_FACE_24H_ONLY
-                if (!settings->bit.clock_mode_24h) {
+                if (movement_clock_mode_24h() == MOVEMENT_CLOCK_MODE_12H) {
                     if (date_time.unit.hour < 12) {
                         watch_set_indicator(WATCH_INDICATOR_PM);
                     } else {
@@ -242,13 +242,12 @@ bool inver58_face_loop(movement_event_t event, movement_settings_t *settings, vo
                 }
 #endif
 
-                if (settings->bit.clock_mode_24h && settings->bit.clock_24h_leading_zero && date_time.unit.hour < 10) {
+                if (movement_clock_mode_24h() == MOVEMENT_CLOCK_MODE_024H && date_time.unit.hour < 10) {
                     set_leading_zero = true;
                 }
 
                 pos = 0;
                 if (event.event_type == EVENT_LOW_ENERGY_UPDATE) {
-                    if (!watch_tick_animation_is_running()) watch_start_tick_animation(500);
                     snprintf(buf, 11, "%s%2d%2d%02d  ", watch_utility_get_weekday(date_time), date_time.unit.day, date_time.unit.hour, date_time.unit.minute);
                 } else {
                     snprintf(buf, 11, "%s%2d%2d%02d%02d", watch_utility_get_weekday(date_time), date_time.unit.day, date_time.unit.hour, date_time.unit.minute, date_time.unit.second);
@@ -259,7 +258,10 @@ bool inver58_face_loop(movement_event_t event, movement_settings_t *settings, vo
             if (set_leading_zero) inver58_display_string("0", 4);
 
             // handle alarm indicator
-            if (state->alarm_enabled != settings->bit.alarm_enabled) _update_alarm_indicator(settings->bit.alarm_enabled, state);
+            {
+                bool alarm_now = movement_alarm_enabled();
+                if (state->alarm_enabled != alarm_now) _update_alarm_indicator(alarm_now, state);
+            }
             break;
         case EVENT_ALARM_LONG_PRESS:
             state->signal_enabled = !state->signal_enabled;
@@ -271,24 +273,13 @@ bool inver58_face_loop(movement_event_t event, movement_settings_t *settings, vo
             movement_play_signal();
             break;
         default:
-            return movement_default_loop_handler(event, settings);
+            return movement_default_loop_handler(event);
     }
 
     return true;
 }
 
-void inver58_face_resign(movement_settings_t *settings, void *context) {
-    (void) settings;
+void inver58_face_resign(void *context) {
     (void) context;
+    movement_request_tick_frequency(1);
 }
-
-bool inver58_face_wants_background_task(movement_settings_t *settings, void *context) {
-    (void) settings;
-    inver58_state_t *state = (inver58_state_t *)context;
-    if (!state->signal_enabled) return false;
-
-    watch_date_time date_time = watch_rtc_get_date_time();
-
-    return date_time.unit.minute == 0;
-}
-

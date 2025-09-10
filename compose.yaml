@@ -11,8 +11,45 @@ services:
       - "${PORT}:8000"
     env_file:
       - .env
+    environment:
+      EMCC_SKIP_WASM_OPT: "1"
     command: >
       bash -lc "git submodule update --init --recursive &&
+                (emmake make clean || true) && rm -rf build-sim &&
                 emmake make BOARD=$BOARD DISPLAY=$DISPLAY &&
                 python3 -m http.server -d build-sim $PORT"
     restart: unless-stopped
+
+  firmware:
+    image: second-movement-dev:latest
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    working_dir: /work
+    volumes:
+      - .:/work
+    env_file:
+      - .env
+    environment:
+      JOBS: "4"
+    command: >
+      bash -lc "git submodule update --init --recursive && make -j${JOBS} BOARD=$BOARD DISPLAY=$DISPLAY"
+    restart: "no"
+
+  sim:
+    image: second-movement-dev:latest
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    working_dir: /work
+    volumes:
+      - .:/work
+    env_file:
+      - .env
+    environment:
+      EMCC_SKIP_WASM_OPT: "1"
+    command: >
+      bash -lc "git submodule update --init --recursive &&
+                (emmake make clean || true) && rm -rf build-sim &&
+                emmake make BOARD=$BOARD DISPLAY=$DISPLAY"
+    restart: "no"
