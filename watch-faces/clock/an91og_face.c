@@ -235,15 +235,9 @@ bool an91og_face_loop(movement_event_t event, void *context) {
                 clear_outline_all_digits();  // Only clear the ring (A..F)
             }
             
-            // Handle colon blink and derive a shared 1 Hz boolean for minute-hand blink
-            bool colon_on;
-            if (state->needs_high_freq) {
-                // 4 Hz tick: show colon on the first sub-tick each second (1 Hz overall, ~25% duty)
-                colon_on = (event.subsecond % 4 == 0);
-            } else {
-                // 1 Hz tick: toggle every second
-                colon_on = ((now.unit.second & 1) == 0);
-            }
+            // Handle colon blink at a steady 1 Hz regardless of fast tick
+            // Colon should be ON for one full second, then OFF for the next, etc.
+            bool colon_on = ((now.unit.second & 1) == 0);
             if (colon_on) watch_set_colon(); else watch_clear_colon();
             
             // Render hour ring with blinking support
