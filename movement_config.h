@@ -94,7 +94,7 @@ const watch_face_t watch_faces[] = {
  * 6: 1 day
  * 7: 7 days
  */
-#define MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL 2
+#define MOVEMENT_DEFAULT_LOW_ENERGY_INTERVAL 6
 
 /* Set the led duration
  * Valid values are:
